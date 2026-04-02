@@ -85,6 +85,34 @@ async function fetchPincode(pin) {
   }
 }
 
+// ===== GOOGLE SHEETS CONFIG =====
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwl0ef96Mp41VsLuMPtoe3_be26vvdJYwwW9ZCZ2NJjeRk0Swu6mysVfIRywI2P1tt_ng/exec';
+
+async function saveOrderToSheets(order) {
+  // Google Apps Script requires form-encoded POST or URL params via no-cors fetch
+  // We use a URL param GET approach which works reliably with CORS-free GAS deployments
+  const params = new URLSearchParams({
+    orderId:   order.id,
+    name:      order.name,
+    phone:     order.phone,
+    pincode:   order.pincode,
+    address:   order.address,
+    city:      order.city,
+    state:     order.state,
+    product:   order.product,
+    price:     order.price,
+    timestamp: order.timestamp,
+    status:    order.status
+  });
+
+  // no-cors because GAS doesn't return CORS headers on GET redirects,
+  // but the data still lands in the sheet perfectly.
+  await fetch(`${SHEETS_URL}?${params.toString()}`, {
+    method: 'GET',
+    mode: 'no-cors'
+  });
+}
+
 // ===== ORDER FORM =====
 function initOrderForm() {
   const form = document.getElementById('order-form');
@@ -131,45 +159,54 @@ function initOrderForm() {
 
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
-    btn.innerHTML = '<span>⏳</span> Placing Order...';
+    btn.innerHTML = '<span>⏳</span> Saving Order...';
 
     const product = getProductData();
     const order = {
-      id: 'SLM' + Date.now(),
-      name: document.getElementById('name').value.trim(),
-      phone: document.getElementById('phone').value.trim(),
-      pincode: document.getElementById('pincode').value.trim(),
-      address: document.getElementById('address').value.trim(),
-      city: document.getElementById('city').value.trim(),
-      state: document.getElementById('state').value.trim(),
-      product: product.name,
-      price: product.price,
+      id:        'SLM' + Date.now(),
+      name:      document.getElementById('name').value.trim(),
+      phone:     document.getElementById('phone').value.trim(),
+      pincode:   document.getElementById('pincode').value.trim(),
+      address:   document.getElementById('address').value.trim(),
+      city:      document.getElementById('city').value.trim(),
+      state:     document.getElementById('state').value.trim(),
+      product:   product.name,
+      price:     product.price,
       timestamp: new Date().toLocaleString('en-IN'),
-      status: 'Pending'
+      status:    'Pending'
     };
 
-    // Save to localStorage
+    // 1. Save to localStorage (instant, always works)
     const orders = JSON.parse(localStorage.getItem('slimora_orders') || '[]');
     orders.unshift(order);
     localStorage.setItem('slimora_orders', JSON.stringify(orders));
     localStorage.removeItem('slimora_draft');
 
-    // Fire Pixel event
+    // 2. Send to Google Sheets (async, non-blocking)
+    try {
+      await saveOrderToSheets(order);
+      console.log('✅ Order synced to Google Sheets:', order.id);
+    } catch (err) {
+      // Order is safe in localStorage even if Sheets fails
+      console.warn('⚠️ Sheets sync failed (order still saved locally):', err);
+    }
+
+    // 3. Fire Meta Pixel Purchase event
     if (window.fbq) {
       fbq('track', 'Purchase', {
-        value: parseFloat(product.price),
-        currency: 'INR',
+        value:        parseFloat(product.price),
+        currency:     'INR',
         content_name: product.name
       });
     }
 
-    // Show success
-    setTimeout(() => {
-      btn.disabled = false;
-      btn.innerHTML = '🛒 Order Now - COD';
-      showSuccessModal(order.id);
-      form.reset();
-    }, 1200);
+    // 4. Show success
+    btn.disabled = false;
+    btn.innerHTML = '🛒 Order Now - COD';
+    showSuccessModal(order.id);
+    form.reset();
+    // Clear success/error classes after reset
+    form.querySelectorAll('.form-control').forEach(el => el.classList.remove('success', 'error'));
   });
 }
 

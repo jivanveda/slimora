@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Slimora Admin Panel</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="admin-bg">
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="admin-login">
+    <div class="login-box">
+      <div class="login-logo">Slimora</div>
+      <div class="login-sub">Admin Panel – Secure Login</div>
+      <div id="login-alert" class="alert"></div>
+      <div class="admin-form-group">
+        <label>Username</label>
+        <input type="text" id="login-user" placeholder="admin" autocomplete="username">
+      </div>
+      <div class="admin-form-group">
+        <label>Password</label>
+        <input type="password" id="login-pass" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn-save" style="width:100%;padding:14px;font-size:16px;margin-top:6px" onclick="doLogin()">
+        🔐 Login
+      </button>
+      <p style="text-align:center;margin-top:16px;font-size:13px;color:#999">Default: admin / slimora123</p>
+    </div>
+  </div>
+
+  <!-- ADMIN PANEL -->
+  <div id="admin-panel" style="display:none">
+
+    <!-- Header -->
+    <div class="admin-header">
+      <div class="admin-logo">⚙️ Slimora Admin</div>
+      <button class="btn-logout" onclick="doLogout()">Logout</button>
+    </div>
+
+    <div class="admin-main">
+
+      <!-- Stats -->
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card">
+          <div class="stat-num" id="stat-total">0</div>
+          <div class="stat-label">Total Orders</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-today">0</div>
+          <div class="stat-label">Today's Orders</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-revenue">₹0</div>
+          <div class="stat-label">Total Revenue</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num" id="stat-states">0</div>
+          <div class="stat-label">States Covered</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="admin-tabs">
+        <button class="tab-btn active" onclick="switchTab('orders', this)">📦 Orders</button>
+        <button class="tab-btn" onclick="switchTab('product', this)">🏷️ Product</button>
+        <button class="tab-btn" onclick="switchTab('pixel', this)">📡 Meta Pixel</button>
+      </div>
+
+      <!-- ORDERS TAB -->
+      <div class="tab-panel active" id="tab-orders">
+        <div class="admin-card">
+          <h2>
+            📦 All Orders
+            <span style="margin-left:auto;display:flex;gap:8px">
+              <button class="btn-save" style="padding:8px 18px;font-size:13px" onclick="exportCSV()">⬇ Export CSV</button>
+              <button class="btn-delete" style="padding:8px 18px;font-size:13px" onclick="clearAllOrders()">🗑 Clear All</button>
+            </span>
+          </h2>
+          <div id="orders-alert" class="alert"></div>
+          <div class="orders-table-wrap" id="orders-container">
+            <!-- filled by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- PRODUCT TAB -->
+      <div class="tab-panel" id="tab-product">
+        <div class="admin-card">
+          <h2>🏷️ Edit Product</h2>
+          <div id="product-alert" class="alert"></div>
+          <div class="admin-form-group">
+            <label>Product Name</label>
+            <input type="text" id="prod-name" placeholder="Slimora Sweat Belt">
+          </div>
+          <div class="admin-form-group">
+            <label>Price (₹)</label>
+            <input type="number" id="prod-price" placeholder="399" min="1">
+          </div>
+          <div class="admin-form-group">
+            <label>Description</label>
+            <textarea id="prod-desc" placeholder="Short product description..."></textarea>
+          </div>
+          <div class="admin-form-group">
+            <label>Product Image URL</label>
+            <input type="url" id="prod-image" placeholder="https://example.com/image.jpg" oninput="previewImage()">
+            <img id="img-preview" class="product-img-preview" alt="Preview">
+          </div>
+          <button class="btn-save" onclick="saveProduct()">💾 Save Changes</button>
+        </div>
+      </div>
+
+      <!-- META PIXEL TAB -->
+      <div class="tab-panel" id="tab-pixel">
+        <div class="admin-card">
+          <h2>📡 Meta Pixel (Facebook Pixel)</h2>
+          <div id="pixel-alert" class="alert"></div>
+
+          <div class="admin-form-group">
+            <label>Pixel ID</label>
+            <input type="text" id="pixel-id" placeholder="e.g. 123456789012345">
+            <p class="pixel-help">
+              💡 Pixel ID कैसे पाएं: Facebook Business Manager → Events Manager → Pixel → Settings
+            </p>
+          </div>
+
+          <div style="background:#f8f9fa;border-radius:12px;padding:16px;margin-bottom:20px;font-size:14px">
+            <strong>🔍 Tracked Events:</strong>
+            <ul style="margin-top:8px;padding-left:18px;line-height:2">
+              <li><code>PageView</code> – जब कोई page खोले</li>
+              <li><code>InitiateCheckout</code> – जब "Order Now" click करे</li>
+              <li><code>Purchase</code> – जब order submit हो</li>
+            </ul>
+          </div>
+
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <button class="btn-save" onclick="savePixel()">💾 Save Pixel ID</button>
+            <button class="btn-delete" style="padding:12px 24px;border-radius:50px" onclick="removePixel()">🗑 Remove Pixel</button>
+          </div>
+
+          <div id="pixel-status" style="margin-top:16px;font-size:14px;padding:12px;border-radius:8px;background:#f5f5f5;display:none"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // ===== AUTH =====
+    const ADMIN_USER = 'admin';
+    const ADMIN_PASS = 'slimora123';
+
+    function doLogin() {
+      const u = document.getElementById('login-user').value.trim();
+      const p = document.getElementById('login-pass').value.trim();
+      const alert = document.getElementById('login-alert');
+      if (u === ADMIN_USER && p === ADMIN_PASS) {
+        sessionStorage.setItem('slimora_admin', '1');
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('admin-panel').style.display = 'block';
+        initAdmin();
+      } else {
+        alert.className = 'alert error';
+        alert.textContent = '❌ Wrong username or password.';
+      }
+    }
+
+    function doLogout() {
+      sessionStorage.removeItem('slimora_admin');
+      location.reload();
+    }
+
+    // Enter key on login
+    document.getElementById('login-pass').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doLogin();
+    });
+    document.getElementById('login-user').addEventListener('keydown', e => {
+      if (e.key === 'Enter') doLogin();
+    });
+
+    // Auto-login if session active
+    if (sessionStorage.getItem('slimora_admin') === '1') {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('admin-panel').style.display = 'block';
+    }
+
+    // ===== TABS =====
+    function switchTab(name, btn) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    // ===== ORDERS =====
+    function getOrders() {
+      return JSON.parse(localStorage.getItem('slimora_orders') || '[]');
+    }
+
+    function renderOrders() {
+      const orders = getOrders();
+      const container = document.getElementById('orders-container');
+      if (orders.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><p>No orders yet. Orders will appear here once placed.</p></div>`;
+        return;
+      }
+      container.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Order ID</th>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Address</th>
+              <th>City</th>
+              <th>State</th>
+              <th>Pincode</th>
+              <th>Product</th>
+              <th>Amount</th>
+              <th>Date</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="orders-tbody">
+          </tbody>
+        </table>
+      `;
+      const tbody = document.getElementById('orders-tbody');
+      orders.forEach((o, i) => {
+        tbody.innerHTML += `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${o.id}</strong></td>
+            <td>${esc(o.name)}</td>
+            <td><a href="tel:${esc(o.phone)}">${esc(o.phone)}</a></td>
+            <td style="max-width:180px;word-break:break-word">${esc(o.address)}</td>
+            <td>${esc(o.city)}</td>
+            <td>${esc(o.state)}</td>
+            <td>${esc(o.pincode)}</td>
+            <td>${esc(o.product)}</td>
+            <td><span class="badge-cod">₹${esc(o.price)} COD</span></td>
+            <td style="white-space:nowrap;font-size:12px">${esc(o.timestamp)}</td>
+            <td><button class="btn-delete" onclick="deleteOrder('${o.id}')">🗑 Delete</button></td>
+          </tr>
+        `;
+      });
+    }
+
+    function deleteOrder(id) {
+      if (!confirm('Delete this order?')) return;
+      let orders = getOrders().filter(o => o.id !== id);
+      localStorage.setItem('slimora_orders', JSON.stringify(orders));
+      renderOrders();
+      updateStats();
+      showAlert('orders-alert', 'success', '✅ Order deleted.');
+    }
+
+    function clearAllOrders() {
+      if (!confirm('Delete ALL orders? This cannot be undone.')) return;
+      localStorage.removeItem('slimora_orders');
+      renderOrders();
+      updateStats();
+      showAlert('orders-alert', 'success', '✅ All orders cleared.');
+    }
+
+    function exportCSV() {
+      const orders = getOrders();
+      if (orders.length === 0) { alert('No orders to export.'); return; }
+      const headers = ['Order ID','Name','Phone','Address','City','State','Pincode','Product','Price','Date'];
+      const rows = orders.map(o => [o.id, o.name, o.phone, o.address, o.city, o.state, o.pincode, o.product, o.price, o.timestamp].map(v => `"${(v||'').replace(/"/g,'""')}"`).join(','));
+      const csv = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `slimora-orders-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    }
+
+    // ===== STATS =====
+    function updateStats() {
+      const orders = getOrders();
+      const today = new Date().toLocaleDateString('en-IN');
+      const todayOrders = orders.filter(o => o.timestamp && o.timestamp.includes(today));
+      const totalRevenue = orders.reduce((s, o) => s + (parseFloat(o.price) || 0), 0);
+      const states = new Set(orders.map(o => o.state).filter(Boolean)).size;
+      document.getElementById('stat-total').textContent = orders.length;
+      document.getElementById('stat-today').textContent = todayOrders.length;
+      document.getElementById('stat-revenue').textContent = '₹' + totalRevenue.toLocaleString('en-IN');
+      document.getElementById('stat-states').textContent = states;
+    }
+
+    // ===== PRODUCT =====
+    function loadProduct() {
+      document.getElementById('prod-name').value = localStorage.getItem('slimora_product_name') || 'Slimora Sweat Belt';
+      document.getElementById('prod-price').value = localStorage.getItem('slimora_product_price') || '399';
+      document.getElementById('prod-desc').value = localStorage.getItem('slimora_product_desc') || '';
+      const img = localStorage.getItem('slimora_product_image') || '';
+      document.getElementById('prod-image').value = img;
+      if (img) {
+        document.getElementById('img-preview').src = img;
+        document.getElementById('img-preview').classList.add('visible');
+      }
+    }
+
+    function saveProduct() {
+      const name = document.getElementById('prod-name').value.trim();
+      const price = document.getElementById('prod-price').value.trim();
+      const desc = document.getElementById('prod-desc').value.trim();
+      const image = document.getElementById('prod-image').value.trim();
+      if (!name || !price) { showAlert('product-alert', 'error', '❌ Name and price are required.'); return; }
+      localStorage.setItem('slimora_product_name', name);
+      localStorage.setItem('slimora_product_price', price);
+      localStorage.setItem('slimora_product_desc', desc);
+      if (image) localStorage.setItem('slimora_product_image', image);
+      showAlert('product-alert', 'success', '✅ Product saved! Changes will appear on the storefront.');
+    }
+
+    function previewImage() {
+      const url = document.getElementById('prod-image').value.trim();
+      const preview = document.getElementById('img-preview');
+      if (url) {
+        preview.src = url;
+        preview.classList.add('visible');
+        preview.onerror = () => preview.classList.remove('visible');
+      } else {
+        preview.classList.remove('visible');
+      }
+    }
+
+    // ===== META PIXEL =====
+    function loadPixel() {
+      const id = localStorage.getItem('slimora_pixel_id') || '';
+      document.getElementById('pixel-id').value = id;
+      updatePixelStatus(id);
+    }
+
+    function savePixel() {
+      const id = document.getElementById('pixel-id').value.trim();
+      if (!id) { showAlert('pixel-alert', 'error', '❌ Please enter a Pixel ID.'); return; }
+      if (!/^\d{10,20}$/.test(id)) { showAlert('pixel-alert', 'error', '❌ Invalid Pixel ID. Should be 10-20 digits only.'); return; }
+      localStorage.setItem('slimora_pixel_id', id);
+      showAlert('pixel-alert', 'success', `✅ Pixel ID ${id} saved! It will be active on the storefront.`);
+      updatePixelStatus(id);
+    }
+
+    function removePixel() {
+      if (!confirm('Remove Meta Pixel? Tracking will stop.')) return;
+      localStorage.removeItem('slimora_pixel_id');
+      document.getElementById('pixel-id').value = '';
+      showAlert('pixel-alert', 'success', '✅ Pixel removed.');
+      updatePixelStatus('');
+    }
+
+    function updatePixelStatus(id) {
+      const el = document.getElementById('pixel-status');
+      if (id) {
+        el.style.display = 'block';
+        el.style.background = '#f0fdf4';
+        el.style.color = '#16a34a';
+        el.innerHTML = `✅ <strong>Pixel Active:</strong> ID <code>${id}</code> is tracking on your storefront.`;
+      } else {
+        el.style.display = 'block';
+        el.style.background = '#fff8f0';
+        el.style.color = '#92400e';
+        el.innerHTML = `⚠️ <strong>No Pixel Set.</strong> Add your Pixel ID above to start tracking.`;
+      }
+    }
+
+    // ===== UTILS =====
+    function showAlert(id, type, msg) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.className = 'alert ' + type;
+      el.textContent = msg;
+      setTimeout(() => { el.className = 'alert'; }, 4000);
+    }
+
+    function esc(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ===== INIT =====
+    function initAdmin() {
+      renderOrders();
+      updateStats();
+      loadProduct();
+      loadPixel();
+    }
+
+    if (sessionStorage.getItem('slimora_admin') === '1') initAdmin();
+  </script>
+</body>
+</html>

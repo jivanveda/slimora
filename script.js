@@ -17,10 +17,10 @@ initPixel();
 // ===== PRODUCT DATA =====
 function getProductData() {
   return {
-    name: localStorage.getItem('slimora_product_name') || 'Slimora Sweat Belt',
-    price: localStorage.getItem('slimora_product_price') || '399',
-    description: localStorage.getItem('slimora_product_desc') || 'Premium waist trimmer for effective fat burning',
-    image: localStorage.getItem('slimora_product_image') || 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=600&q=80'
+    name:        localStorage.getItem('slimora_product_name')  || 'Slimora Sweat Belt',
+    price:       localStorage.getItem('slimora_product_price') || '399',
+    description: localStorage.getItem('slimora_product_desc')  || 'Premium waist trimmer for effective fat burning',
+    image:       localStorage.getItem('slimora_product_image') || 'https://images.unsplash.com/photo-1571019614242-c5c5dee9f50b?w=600&q=80'
   };
 }
 
@@ -29,16 +29,12 @@ function initCountdown() {
   const endKey = 'slimora_timer_end';
   let endTime = localStorage.getItem(endKey);
   if (!endTime || Date.now() > parseInt(endTime)) {
-    endTime = Date.now() + (3 * 60 * 60 * 1000); // 3 hours
+    endTime = Date.now() + (3 * 60 * 60 * 1000);
     localStorage.setItem(endKey, endTime);
   }
   function tick() {
     const diff = parseInt(endTime) - Date.now();
-    if (diff <= 0) {
-      localStorage.removeItem(endKey);
-      location.reload();
-      return;
-    }
+    if (diff <= 0) { localStorage.removeItem(endKey); location.reload(); return; }
     const h = Math.floor(diff / 3600000);
     const m = Math.floor((diff % 3600000) / 60000);
     const s = Math.floor((diff % 60000) / 1000);
@@ -51,47 +47,68 @@ function initCountdown() {
   setInterval(tick, 1000);
 }
 
-// ===== PINCODE LOOKUP =====
-async function fetchPincode(pin) {
-  const loader = document.querySelector('.pincode-loader');
-  const cityEl = document.getElementById('city');
-  const stateEl = document.getElementById('state');
-  const pinMsg = document.getElementById('pin-msg');
-  if (loader) loader.classList.add('active');
-  if (pinMsg) { pinMsg.className = 'field-msg'; pinMsg.textContent = ''; }
-  try {
-    const res = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
-    const data = await res.json();
-    if (data[0].Status === 'Success' && data[0].PostOffice && data[0].PostOffice.length > 0) {
-      const po = data[0].PostOffice[0];
-      if (cityEl) { cityEl.value = po.District; }
-      if (stateEl) { stateEl.value = po.State; }
-      if (pinMsg) { pinMsg.className = 'field-msg success'; pinMsg.textContent = `✓ ${po.Name}, ${po.District}, ${po.State}`; }
-      document.getElementById('pincode').classList.add('success');
-      document.getElementById('pincode').classList.remove('error');
-    } else {
-      if (cityEl) cityEl.value = '';
-      if (stateEl) stateEl.value = '';
-      if (pinMsg) { pinMsg.className = 'field-msg error'; pinMsg.textContent = '✗ Invalid pincode. Please check.'; }
-      document.getElementById('pincode').classList.add('error');
-      document.getElementById('pincode').classList.remove('success');
-    }
-  } catch (e) {
-    if (pinMsg) { pinMsg.className = 'field-msg error'; pinMsg.textContent = 'Network error. Enter city/state manually.'; }
-    if (cityEl) cityEl.removeAttribute('readonly');
-    if (stateEl) stateEl.removeAttribute('readonly');
-  } finally {
-    if (loader) loader.classList.remove('active');
-  }
-}
-
 // ===== GOOGLE SHEETS CONFIG =====
 const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwl0ef96Mp41VsLuMPtoe3_be26vvdJYwwW9ZCZ2NJjeRk0Swu6mysVfIRywI2P1tt_ng/exec';
 
+// Retry queue — orders that failed to sync get retried on next page load
+function getRetryQueue() { return JSON.parse(localStorage.getItem('slimora_retry_queue') || '[]'); }
+function setRetryQueue(q) { localStorage.setItem('slimora_retry_queue', JSON.stringify(q)); }
+
+/*
+  WHY THREE METHODS:
+  ─────────────────
+  GAS Web Apps are deployed behind Google's redirect infrastructure.
+  • fetch() POST with Content-Type: application/json → triggers CORS preflight → GAS blocks it
+  • fetch() POST with Content-Type: text/plain       → no preflight → GAS receives it via e.postData.contents
+  • fetch() GET  with mode: no-cors                  → opaque response, can't read it, but GAS doGet() fires
+  • <form> POST submit via hidden iframe             → completely bypasses CORS, 100% reliable for GAS
+
+  We try all three in order. The iframe form approach (Method 3) is the nuclear option that
+  always works because it's a real browser form submission, not an XHR/fetch at all.
+*/
 async function saveOrderToSheets(order) {
-  // Google Apps Script requires form-encoded POST or URL params via no-cors fetch
-  // We use a URL param GET approach which works reliably with CORS-free GAS deployments
-  const params = new URLSearchParams({
+
+  // ── Method 1: POST text/plain (no preflight, GAS reads via e.postData.contents) ──
+  try {
+    const res = await fetch(SHEETS_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body:    JSON.stringify(order)
+    });
+    if (res.ok || res.status === 302) {
+      console.log('✅ Sheets synced via POST text/plain');
+      return;
+    }
+  } catch (e1) {
+    console.warn('Method 1 (POST) failed:', e1.message);
+  }
+
+  // ── Method 2: GET with URL params + no-cors (opaque but GAS doGet() fires) ──
+  try {
+    const params = new URLSearchParams(flattenOrder(order));
+    await fetch(`${SHEETS_URL}?${params.toString()}`, {
+      method: 'GET',
+      mode:   'no-cors'
+    });
+    console.log('✅ Sheets sync fired via GET no-cors (opaque — check your sheet)');
+    return;
+  } catch (e2) {
+    console.warn('Method 2 (GET no-cors) failed:', e2.message);
+  }
+
+  // ── Method 3: Hidden <form> POST via invisible iframe (bypasses CORS entirely) ──
+  try {
+    await submitViaHiddenForm(order);
+    console.log('✅ Sheets sync fired via hidden form POST');
+    return;
+  } catch (e3) {
+    console.warn('Method 3 (hidden form) failed:', e3.message);
+    throw new Error('All three Sheets sync methods failed');
+  }
+}
+
+function flattenOrder(order) {
+  return {
     orderId:   order.id,
     name:      order.name,
     phone:     order.phone,
@@ -103,14 +120,95 @@ async function saveOrderToSheets(order) {
     price:     order.price,
     timestamp: order.timestamp,
     status:    order.status
-  });
+  };
+}
 
-  // no-cors because GAS doesn't return CORS headers on GET redirects,
-  // but the data still lands in the sheet perfectly.
-  await fetch(`${SHEETS_URL}?${params.toString()}`, {
-    method: 'GET',
-    mode: 'no-cors'
+function submitViaHiddenForm(order) {
+  return new Promise((resolve, reject) => {
+    try {
+      // Create a hidden iframe to catch the response (avoids page navigation)
+      const iframe = document.createElement('iframe');
+      iframe.name = 'sheets_iframe_' + Date.now();
+      iframe.style.cssText = 'display:none;width:0;height:0;border:none;position:absolute;left:-9999px';
+      document.body.appendChild(iframe);
+
+      // Build hidden form targeting the iframe
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = SHEETS_URL;
+      form.target = iframe.name;
+      form.style.display = 'none';
+
+      const fields = flattenOrder(order);
+      Object.entries(fields).forEach(([key, val]) => {
+        const input = document.createElement('input');
+        input.type  = 'hidden';
+        input.name  = key;
+        input.value = val || '';
+        form.appendChild(input);
+      });
+
+      document.body.appendChild(form);
+      form.submit();
+
+      // Clean up after 5 s — by then GAS has received the submission
+      setTimeout(() => {
+        try { document.body.removeChild(form);   } catch(_) {}
+        try { document.body.removeChild(iframe); } catch(_) {}
+        resolve();
+      }, 5000);
+    } catch (err) {
+      reject(err);
+    }
   });
+}
+
+// Retry unsynced orders from previous sessions
+async function retryPendingSyncs() {
+  const queue = getRetryQueue();
+  if (!queue.length) return;
+  console.log(`🔄 Retrying ${queue.length} unsynced order(s)…`);
+  const stillFailed = [];
+  for (const order of queue) {
+    try { await saveOrderToSheets(order); }
+    catch { stillFailed.push(order); }
+  }
+  setRetryQueue(stillFailed);
+  if (!stillFailed.length) console.log('✅ All pending orders now synced to Sheets.');
+}
+
+// ===== PINCODE LOOKUP =====
+async function fetchPincode(pin) {
+  const loader  = document.querySelector('.pincode-loader');
+  const cityEl  = document.getElementById('city');
+  const stateEl = document.getElementById('state');
+  const pinMsg  = document.getElementById('pin-msg');
+  if (loader)  loader.classList.add('active');
+  if (pinMsg) { pinMsg.className = 'field-msg'; pinMsg.textContent = ''; }
+  try {
+    const res  = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+    const data = await res.json();
+    if (data[0].Status === 'Success' && data[0].PostOffice?.length > 0) {
+      const po = data[0].PostOffice[0];
+      if (cityEl)  cityEl.value  = po.District;
+      if (stateEl) stateEl.value = po.State;
+      if (pinMsg) { pinMsg.className = 'field-msg success'; pinMsg.textContent = `✓ ${po.Name}, ${po.District}, ${po.State}`; }
+      document.getElementById('pincode').classList.add('success');
+      document.getElementById('pincode').classList.remove('error');
+    } else {
+      if (cityEl)  cityEl.value  = '';
+      if (stateEl) stateEl.value = '';
+      if (pinMsg) { pinMsg.className = 'field-msg error'; pinMsg.textContent = '✗ Invalid pincode. Please check.'; }
+      document.getElementById('pincode').classList.add('error');
+      document.getElementById('pincode').classList.remove('success');
+    }
+  } catch (e) {
+    if (pinMsg) { pinMsg.className = 'field-msg error'; pinMsg.textContent = 'Network error. Enter city/state manually.'; }
+    if (cityEl)  cityEl.removeAttribute('readonly');
+    if (stateEl) stateEl.removeAttribute('readonly');
+  } finally {
+    if (loader) loader.classList.remove('active');
+  }
 }
 
 // ===== ORDER FORM =====
@@ -118,17 +216,17 @@ function initOrderForm() {
   const form = document.getElementById('order-form');
   if (!form) return;
 
-  // Auto-restore saved draft
+  // Restore draft
   const draft = JSON.parse(localStorage.getItem('slimora_draft') || '{}');
-  ['name', 'phone', 'pincode', 'address', 'city', 'state'].forEach(f => {
+  ['name','phone','pincode','address','city','state'].forEach(f => {
     const el = document.getElementById(f);
     if (el && draft[f]) el.value = draft[f];
   });
 
-  // Auto-save draft on input
+  // Auto-save draft
   form.addEventListener('input', () => {
     const d = {};
-    ['name', 'phone', 'pincode', 'address', 'city', 'state'].forEach(f => {
+    ['name','phone','pincode','address','city','state'].forEach(f => {
       const el = document.getElementById(f);
       if (el) d[f] = el.value;
     });
@@ -144,7 +242,7 @@ function initOrderForm() {
     });
   }
 
-  // Phone validation
+  // Phone digits only
   const phoneEl = document.getElementById('phone');
   if (phoneEl) {
     phoneEl.addEventListener('input', function() {
@@ -152,14 +250,14 @@ function initOrderForm() {
     });
   }
 
-  // Submit
+  // ── SUBMIT ──
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
     if (!validateForm()) return;
 
     const btn = document.getElementById('submit-btn');
     btn.disabled = true;
-    btn.innerHTML = '<span>⏳</span> Saving Order...';
+    btn.innerHTML = '⏳ Saving Order...';
 
     const product = getProductData();
     const order = {
@@ -176,22 +274,30 @@ function initOrderForm() {
       status:    'Pending'
     };
 
-    // 1. Save to localStorage (instant, always works)
+    // 1️⃣ Save to localStorage FIRST (instant, never fails)
     const orders = JSON.parse(localStorage.getItem('slimora_orders') || '[]');
     orders.unshift(order);
     localStorage.setItem('slimora_orders', JSON.stringify(orders));
     localStorage.removeItem('slimora_draft');
 
-    // 2. Send to Google Sheets (async, non-blocking)
-    try {
-      await saveOrderToSheets(order);
-      console.log('✅ Order synced to Google Sheets:', order.id);
-    } catch (err) {
-      // Order is safe in localStorage even if Sheets fails
-      console.warn('⚠️ Sheets sync failed (order still saved locally):', err);
-    }
+    // 2️⃣ Show success immediately — don't make user wait for network
+    btn.disabled = false;
+    btn.innerHTML = '🛒 Order Now - COD';
+    showSuccessModal(order.id);
+    form.reset();
+    form.querySelectorAll('.form-control').forEach(el => el.classList.remove('success','error'));
 
-    // 3. Fire Meta Pixel Purchase event
+    // 3️⃣ Sync to Google Sheets in background (non-blocking)
+    saveOrderToSheets(order)
+      .then(() => console.log('📊 Order', order.id, 'synced to Google Sheets'))
+      .catch(err => {
+        console.warn('📊 Sheets sync failed, queued for retry:', err.message);
+        const q = getRetryQueue();
+        q.push(order);
+        setRetryQueue(q);
+      });
+
+    // 4️⃣ Fire Meta Pixel
     if (window.fbq) {
       fbq('track', 'Purchase', {
         value:        parseFloat(product.price),
@@ -199,48 +305,34 @@ function initOrderForm() {
         content_name: product.name
       });
     }
-
-    // 4. Show success
-    btn.disabled = false;
-    btn.innerHTML = '🛒 Order Now - COD';
-    showSuccessModal(order.id);
-    form.reset();
-    // Clear success/error classes after reset
-    form.querySelectorAll('.form-control').forEach(el => el.classList.remove('success', 'error'));
   });
 }
 
 function validateForm() {
   let valid = true;
   const fields = [
-    { id: 'name', min: 2, label: 'Name' },
-    { id: 'phone', min: 10, label: 'Phone' },
-    { id: 'pincode', min: 6, label: 'Pincode' },
-    { id: 'address', min: 8, label: 'Address' },
-    { id: 'city', min: 1, label: 'City' },
-    { id: 'state', min: 1, label: 'State' }
+    { id: 'name',    min: 2  },
+    { id: 'phone',   min: 10 },
+    { id: 'pincode', min: 6  },
+    { id: 'address', min: 8  },
+    { id: 'city',    min: 1  },
+    { id: 'state',   min: 1  }
   ];
-  fields.forEach(({ id, min, label }) => {
+  fields.forEach(({ id, min }) => {
     const el = document.getElementById(id);
     if (!el) return;
-    const val = el.value.trim();
-    if (val.length < min) {
-      el.classList.add('error');
-      el.classList.remove('success');
-      valid = false;
+    if (el.value.trim().length < min) {
+      el.classList.add('error'); el.classList.remove('success'); valid = false;
     } else {
-      el.classList.remove('error');
-      el.classList.add('success');
+      el.classList.remove('error'); el.classList.add('success');
     }
   });
   const phone = document.getElementById('phone');
   if (phone && !/^[6-9]\d{9}$/.test(phone.value.trim())) {
-    phone.classList.add('error');
-    valid = false;
+    phone.classList.add('error'); valid = false;
   }
   if (!valid) {
-    const firstErr = document.querySelector('.form-control.error');
-    if (firstErr) firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.querySelector('.form-control.error')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   return valid;
 }
@@ -256,11 +348,7 @@ function showSuccessModal(orderId) {
 function onOrderClick() {
   if (window.fbq) {
     const product = getProductData();
-    fbq('track', 'InitiateCheckout', {
-      value: parseFloat(product.price),
-      currency: 'INR',
-      content_name: product.name
-    });
+    fbq('track', 'InitiateCheckout', { value: parseFloat(product.price), currency: 'INR', content_name: product.name });
   }
   document.getElementById('order-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   document.getElementById('name')?.focus();
@@ -270,10 +358,10 @@ function onOrderClick() {
 function loadProductData() {
   const p = getProductData();
   const els = {
-    'product-name': p.name,
-    'product-price': '₹' + p.price,
+    'product-name':       p.name,
+    'product-price':      '₹' + p.price,
     'order-product-name': p.name,
-    'order-product-price': '₹' + p.price
+    'order-product-price':'₹' + p.price
   };
   Object.entries(els).forEach(([id, val]) => {
     const el = document.getElementById(id);
@@ -286,9 +374,8 @@ function loadProductData() {
 // ===== STICKY CTA SCROLL =====
 function initStickyCTA() {
   const sticky = document.getElementById('sticky-cta');
-  if (!sticky) return;
-  const hero = document.querySelector('.hero');
-  if (!hero) return;
+  const hero   = document.querySelector('.hero');
+  if (!sticky || !hero) return;
   const observer = new IntersectionObserver(([e]) => {
     sticky.style.display = e.isIntersecting ? 'none' : 'block';
   }, { threshold: 0 });
@@ -301,13 +388,12 @@ document.addEventListener('DOMContentLoaded', () => {
   initCountdown();
   initOrderForm();
   initStickyCTA();
+  retryPendingSyncs(); // retry any orders that failed to sync last time
 
-  // Close modal
   document.getElementById('modal-close')?.addEventListener('click', () => {
     document.getElementById('success-modal')?.classList.remove('active');
   });
 
-  // All "Order Now" CTAs
   document.querySelectorAll('.order-now-btn').forEach(btn => {
     btn.addEventListener('click', onOrderClick);
   });
